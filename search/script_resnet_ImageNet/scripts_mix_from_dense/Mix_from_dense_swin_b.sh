@@ -1,0 +1,8 @@
+#/bin/bash
+
+python -m torch.distributed.launch --nproc_per_node=1  \
+../find_mix_from_dense_imagenet.py \
+--target_sparsity 0.75 \
+--config ./configs/config_swin_base_img_mix_from_dense_base_4.yaml
+
+
