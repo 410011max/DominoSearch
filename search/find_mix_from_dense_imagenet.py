@@ -38,6 +38,7 @@ parser.add_argument(
 parser.add_argument('--world-size', default=1, type=int)
 parser.add_argument('--rank', default=0, type=int)
 parser.add_argument('--target_sparsity', default=0.0, type=float)
+parser.add_argument('--target_sparse_flops_ratio', default=0.0, type=float)
 parser.add_argument('--model_dir', type=str)
 parser.add_argument('--resume_from', default='', help='resume_from')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
@@ -48,24 +49,12 @@ parser.add_argument('--gamma', type=float, default=0.1, help='LR is multiplied b
 
 args = parser.parse_args()
 
-
-# start_epoch_complexity_loss = 20
-#state = {k: v for k, v in args._get_kwargs()}
-
-# Validate dataset
-# global layer_sparse_vis_dict
-    
-    
-# layer_sparse_vis_dict = {}
-
 num_iters = 0
-
 
 target_sparsity = 0.0
 target_sparsity_erk = 0.0
 
-
-target_sparse_flops_ratio = 0.875
+target_sparse_flops_ratio = 0.0
 
 decision_dict = {}
 
@@ -131,6 +120,9 @@ def main():
     target_sparsity = args.target_sparsity
 
     target_sparsity_erk = args.target_sparsity
+
+    global target_sparse_flops_ratio
+    target_sparse_flops_ratio = args.target_sparse_flops_ratio
 
 
     global erk_sparsity_dict
@@ -390,7 +382,6 @@ def train(train_loader, model, criterion, optimizer,epoch, writer):
             writer.add_scalar('Train/Avg_Top1', top1.avg / 100.0, niter)
             writer.add_scalar('Train/Avg_Top5', top5.avg / 100.0, niter)
 
-
 def validate(val_loader, model, criterion, epoch, writer):
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -569,44 +560,48 @@ def adjust_N_M_of_each_layer_based_on_each_group(net,target_sparsity,epoch,itera
 
                     apply_normalized_factor(net,new_normalized)
 
-                    decision_dict[current_overall_sparsity] = (iterations,current_scheme)
+                    # decision_dict[current_overall_sparsity] = (iterations,current_scheme)
                     
                     
                     # use codes below when using FLOPs as optimization goal.
                     ###### FLOPS#####, remember to change target_sparse_flops_ratio before #####
-                    # if current_flops_ratio >= target_sparse_flops_ratio-0.001:
-                    #     if args.rank == 0:
-                    #         print('Target target_sparse_flops_ratio {:.3f} has been achieved, current current_flops_ratio is {:.3f}'.format(target_sparse_flops_ratio, current_flops_ratio))
-                    #         print('The schemes of each layer')
-                    #         print(net.check_N_M())
-                    #         total_sparse_flops,total_dense_flops = compute_flops_reduction(net)
-                    #         print('Current FLOPs: sparse - {:.4f} M , dense - {:.4f} M, sparse/dense - {:.4f}'.format(
-                    #             total_sparse_flops*1e-6,total_dense_flops*1e-6, total_sparse_flops/total_dense_flops
-                    #             )
-                    #             )
-                    #        # print('Decision logs')
-                    #        # print(decision_dict)
-                    #     exit(0)
-
-                    # use this when using model size as optimization goal.
-                    #### Model size#####
-                    if current_overall_sparsity >= target_sparsity-0.001:
+                    if current_flops_ratio >= target_sparse_flops_ratio-0.5:
                         if args.rank == 0:
-                            print('Target Sparsity {:.5f} has been achieved, current sparsity is {:.5f}'.format(target_sparsity, current_overall_sparsity))
+                            print('Target target_sparse_flops_ratio {:.3f} has been achieved, current current_flops_ratio is {:.3f}'.format(target_sparse_flops_ratio, current_flops_ratio))
                             print('The schemes of each layer')
                             print(net.check_N_M())
                             import pickle
-                            with open(os.path.join(args.model_dir, f"s_{target_sparsity}.pkl"), 'wb') as f:
+                            with open(os.path.join(args.model_dir, f"s_{target_sparse_flops_ratio}.pkl"), 'wb') as f:
                                 pickle.dump(net.check_N_M(), f)
-                            
+
                             total_sparse_flops,total_dense_flops = compute_flops_reduction(net)
                             print('Current FLOPs: sparse - {:.4f} M , dense - {:.4f} M, sparse/dense - {:.4f}'.format(
                                 total_sparse_flops*1e-6,total_dense_flops*1e-6, total_sparse_flops/total_dense_flops
                                 )
                                 )
-                            # print('Decision logs')
-                            # print(decision_dict)
+                           # print('Decision logs')
+                           # print(decision_dict)
                         exit(0)
+
+                    # use this when using model size as optimization goal.
+                    #### Model size#####
+                    # if current_overall_sparsity >= target_sparsity-0.001:
+                    #     if args.rank == 0:
+                    #         print('Target Sparsity {:.5f} has been achieved, current sparsity is {:.5f}'.format(target_sparsity, current_overall_sparsity))
+                    #         print('The schemes of each layer')
+                    #         print(net.check_N_M())
+                    #         import pickle
+                    #         with open(os.path.join(args.model_dir, f"s_{target_sparsity}.pkl"), 'wb') as f:
+                    #             pickle.dump(net.check_N_M(), f)
+                            
+                    #         total_sparse_flops,total_dense_flops = compute_flops_reduction(net)
+                    #         print('Current FLOPs: sparse - {:.4f} M , dense - {:.4f} M, sparse/dense - {:.4f}'.format(
+                    #             total_sparse_flops*1e-6,total_dense_flops*1e-6, total_sparse_flops/total_dense_flops
+                    #             )
+                    #             )
+                    #         # print('Decision logs')
+                    #         # print(decision_dict)
+                    #     exit(0)
 
 
 
@@ -624,8 +619,6 @@ def average_two_normalization(norm_dict1,norm_dict2,w1=0.5,w2=0.5):
     
     return new_dict
 
-
-
 def set_apply_penalty_flag(net,flag):
     for mod in net.modules():
         if isinstance(mod, SparseConv) or isinstance(mod, SparseLinear):
@@ -636,13 +629,11 @@ def set_debug_flag_sparseConv(net,flag):
         if isinstance(mod, SparseConv) or isinstance(mod, SparseLinear):
             mod.print_flag = flag
 
-
 def initialize_mod_threshold(net):
     for mod in net.modules():
         if isinstance(mod, SparseConv) or isinstance(mod, SparseLinear):
             if mod.learned_threshold == None:
                 mod.update_learned_sparsity()
-
 
 def set_flops(net):
     for mod in net.modules():
@@ -668,7 +659,6 @@ def set_flops(net):
             mod.flops = int((input_ * output_last_dim + bias_flops) * spatial_dims)
             print('{} input-{} output-{} FLOPs-{}M'.format(mod.name,in_shape,out_shape,mod.flops*1e-6))
 
-
 # dense/sparse
 def check_current_flops_ratio(net):
     sparse_flops = 0
@@ -676,13 +666,10 @@ def check_current_flops_ratio(net):
 
     for mod in net.modules():
         if isinstance(mod, SparseConv) or isinstance(mod, SparseLinear): 
-
             dense_flops += mod.flops
             sparse_flops += mod.flops * mod.N/mod.M   
-
     
     return 1.0  - (sparse_flops/dense_flops)
-
 
 def apply_normalized_factor(net,decay_normalized):
     for mod in net.modules():
@@ -690,7 +677,6 @@ def apply_normalized_factor(net,decay_normalized):
             layer_name = mod.name
             print(decay_normalized)
             mod.normalized_factor = decay_normalized[layer_name]
-
 
 def print_log_sparse_layer(net):
     log_dict = {}
@@ -701,7 +687,6 @@ def print_log_sparse_layer(net):
     
     return log_dict
 
-
 def get_N_inter_M(net):
     sparse_scheme = {}
     for mod in net.modules():
@@ -709,7 +694,6 @@ def get_N_inter_M(net):
             layer_name = mod.name
             sparse_scheme[mod.get_name()] = list([mod.N_intermediate,mod.M])
     return sparse_scheme
-
 
 def get_overall_sparsity_N_inter_M(net):
     sparse_paras = 0
@@ -720,7 +704,6 @@ def get_overall_sparsity_N_inter_M(net):
             dense_paras += mod.dense_parameters
 
     return 1.0 - (sparse_paras/dense_paras)  
-
 
 def normalize_with_flops(net,include_first=True):
     decay_normalized = {}
@@ -757,7 +740,6 @@ def normalize_with_flops(net,include_first=True):
 
     return decay_normalized
 
-
 # return total sparse and dense flops
 def compute_flops_reduction(net):
     total_dense_flops = 0
@@ -772,13 +754,11 @@ def compute_flops_reduction(net):
             total_sparse_flops += sparse_flops
     
     return total_sparse_flops,total_dense_flops
-
-            
+     
 def set_decay_sparse_layer(net,decay):
     for mod in net.modules():
         if isinstance(mod, SparseConv) or isinstance(mod, SparseLinear): 
             mod.decay = decay
-
 
 # def check_sparse_pattern(network,N,M):
 def adjust_learning_rate(optimizer, epoch):
