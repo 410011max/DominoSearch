@@ -114,7 +114,8 @@ def main():
     if rank == 0:
         print("=> data layout '{}'".format(args.layout))
 
-
+    if args.target_sparsity == 0.0:
+        args.target_sparsity = args.target_sparse_flops_ratio
 
     global target_sparsity,target_sparsity_erk
     target_sparsity = args.target_sparsity
@@ -565,7 +566,7 @@ def adjust_N_M_of_each_layer_based_on_each_group(net,target_sparsity,epoch,itera
                     
                     # use codes below when using FLOPs as optimization goal.
                     ###### FLOPS#####, remember to change target_sparse_flops_ratio before #####
-                    if current_flops_ratio >= target_sparse_flops_ratio-0.5:
+                    if current_flops_ratio >= target_sparse_flops_ratio-0.001:
                         if args.rank == 0:
                             print('Target target_sparse_flops_ratio {:.3f} has been achieved, current current_flops_ratio is {:.3f}'.format(target_sparse_flops_ratio, current_flops_ratio))
                             print('The schemes of each layer')
