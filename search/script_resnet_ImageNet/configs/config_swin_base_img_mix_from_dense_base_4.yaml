@@ -26,7 +26,7 @@ TRAIN:
 
 
     print_freq: 200
-    model_dir: swin_base_sparse_base4
+    model_dir: swin_base_sparse
 
     data: /dataset/imagenet
 
